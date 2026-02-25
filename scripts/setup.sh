@@ -96,9 +96,9 @@ header "Step 4: Install Argo Rollouts"
 if kubectl get deployment argo-rollouts -n argo-rollouts >/dev/null 2>&1; then
     warn "Argo Rollouts appears to be installed already -- skipping"
 else
-    info "Applying Argo Rollouts manifests ..."
+    info "Applying Argo Rollouts manifests (v1.7.2) ..."
     kubectl apply -n argo-rollouts \
-        -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+        -f https://github.com/argoproj/argo-rollouts/releases/download/v1.7.2/install.yaml
     success "Argo Rollouts installed in 'argo-rollouts' namespace"
 fi
 
@@ -135,6 +135,7 @@ if helm list -n monitoring 2>/dev/null | grep -q "kube-prometheus-stack"; then
 else
     info "Installing kube-prometheus-stack via Helm (this may take a few minutes) ..."
     helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+        --version 65.1.0 \
         --namespace monitoring \
         --set grafana.adminPassword=admin \
         --set grafana.service.type=NodePort \
@@ -157,6 +158,7 @@ if helm list -n external-secrets 2>/dev/null | grep -q "external-secrets"; then
 else
     info "Installing External Secrets Operator via Helm ..."
     helm install external-secrets external-secrets/external-secrets \
+        --version 0.10.7 \
         --namespace external-secrets \
         --set installCRDs=true \
         --wait --timeout "${WAIT_TIMEOUT}"
@@ -190,9 +192,13 @@ spec:
       labels:
         app: localstack
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: localstack
-          image: localstack/localstack:latest
+          image: localstack/localstack:3.4
           ports:
             - containerPort: 4566
               name: edge
@@ -203,6 +209,11 @@ spec:
               value: "0"
             - name: EAGER_SERVICE_LOADING
               value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
           readinessProbe:
             httpGet:
               path: /_localstack/health

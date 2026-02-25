@@ -102,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@d9cd5b1c23aaf8cb31bb09141028c8bd06b2f48  # v0.16.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9a7489  # v0.28.0
         with:
           image-ref: '${{ env.IMAGE_NAME }}:${{ needs.build.outputs.image-tag }}'
           format: 'sarif'

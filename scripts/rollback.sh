@@ -9,6 +9,15 @@ source "${SCRIPT_DIR}/lib/colors.sh"
 NAMESPACE="transaction-engine"
 ROLLOUT_NAME="transaction-engine"
 
+# Cleanup trap
+cleanup() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        error "Rollback failed with exit code ${exit_code}"
+    fi
+}
+trap cleanup EXIT
+
 header "Rolling back TransactionEngine"
 
 # Show current state

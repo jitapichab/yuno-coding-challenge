@@ -31,9 +31,11 @@ jobs:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
 
       - name: Validate image exists
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          docker manifest inspect ${{ env.IMAGE_NAME }}:${{ inputs.image_tag }} || {
-            echo "::error::Image ${{ env.IMAGE_NAME }}:${{ inputs.image_tag }} not found"
+          docker manifest inspect "${IMAGE_NAME}:${IMAGE_TAG}" || {
+            echo "::error::Image ${IMAGE_NAME}:${IMAGE_TAG} not found"
             exit 1
           }
 
@@ -56,21 +58,23 @@ jobs:
         uses: azure/setup-kubectl@901a10e89ea615cf61f57ac05cecdf23e7de06d8  # v3
 
       - name: Set image on Argo Rollout
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          kubectl argo rollouts set image ${{ env.ROLLOUT_NAME }} \
-            transaction-engine=${{ env.IMAGE_NAME }}:${{ inputs.image_tag }} \
-            -n ${{ env.NAMESPACE }}
+          kubectl argo rollouts set image "${ROLLOUT_NAME}" \
+            "transaction-engine=${IMAGE_NAME}:${IMAGE_TAG}" \
+            -n "${NAMESPACE}"
 
       - name: Monitor rollout
         run: |
-          kubectl argo rollouts status ${{ env.ROLLOUT_NAME }} \
-            -n ${{ env.NAMESPACE }} \
+          kubectl argo rollouts status "${ROLLOUT_NAME}" \
+            -n "${NAMESPACE}" \
             --timeout 600s
 
       - name: Smoke test
         run: |
           # Port-forward and test health endpoint
-          kubectl port-forward svc/transaction-engine 8080:80 -n ${{ env.NAMESPACE }} &
+          kubectl port-forward "svc/transaction-engine" 8080:80 -n "${NAMESPACE}" &
           sleep 5
           curl -sf http://localhost:8080/health || exit 1
           echo "Smoke test passed"
@@ -92,34 +96,40 @@ jobs:
       - name: Pre-deploy snapshot
         run: |
           echo "Current rollout status:"
-          kubectl argo rollouts get rollout ${{ env.ROLLOUT_NAME }} \
-            -n ${{ env.NAMESPACE }} --no-color || true
+          kubectl argo rollouts get rollout "${ROLLOUT_NAME}" \
+            -n "${NAMESPACE}" --no-color || true
 
       - name: Set image on Argo Rollout
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          kubectl argo rollouts set image ${{ env.ROLLOUT_NAME }} \
-            transaction-engine=${{ env.IMAGE_NAME }}:${{ inputs.image_tag }} \
-            -n ${{ env.NAMESPACE }}
+          kubectl argo rollouts set image "${ROLLOUT_NAME}" \
+            "transaction-engine=${IMAGE_NAME}:${IMAGE_TAG}" \
+            -n "${NAMESPACE}"
 
       - name: Monitor rollout progress
         run: |
-          kubectl argo rollouts status ${{ env.ROLLOUT_NAME }} \
-            -n ${{ env.NAMESPACE }} \
+          kubectl argo rollouts status "${ROLLOUT_NAME}" \
+            -n "${NAMESPACE}" \
             --timeout 900s
 
       - name: Post-deploy verification
         run: |
           echo "Rollout completed successfully"
-          kubectl argo rollouts get rollout ${{ env.ROLLOUT_NAME }} \
-            -n ${{ env.NAMESPACE }} --no-color
+          kubectl argo rollouts get rollout "${ROLLOUT_NAME}" \
+            -n "${NAMESPACE}" --no-color
 
       - name: Notify success
         if: success()
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "::notice::Successfully deployed ${{ env.IMAGE_NAME }}:${{ inputs.image_tag }} to production"
+          echo "::notice::Successfully deployed ${IMAGE_NAME}:${IMAGE_TAG} to production"
 
       - name: Notify failure
         if: failure()
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "::error::Deployment of ${{ env.IMAGE_NAME }}:${{ inputs.image_tag }} to production FAILED"
+          echo "::error::Deployment of ${IMAGE_NAME}:${IMAGE_TAG} to production FAILED"
           echo "::error::Check Argo Rollouts status and consider manual rollback"

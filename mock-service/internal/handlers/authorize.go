@@ -84,13 +84,16 @@ func (h *AuthorizeHandler) handleAuthorize(ctx context.Context, w http.ResponseW
 		return
 	}
 
+	// Limit request body to 1MB to prevent abuse.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+
 	// Decode request body.
 	var req AuthorizeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "invalid request body: " + err.Error(),
+			"error": "invalid request body",
 		})
 		return
 	}
@@ -151,12 +154,13 @@ func (h *AuthorizeHandler) handleAuthorize(ctx context.Context, w http.ResponseW
 	h.metrics.TransactionAuthTotal.WithLabelValues(status, provider).Inc()
 	h.metrics.TransactionAuthDuration.WithLabelValues(provider).Observe(duration.Seconds())
 
-	// Structured audit log.
+	// Structured audit log — card_token is masked to prevent secret leakage.
 	h.logger.Info("authorization_request",
 		"transaction_id", transactionID,
 		"merchant_id", req.MerchantID,
 		"amount", req.Amount,
 		"currency", req.Currency,
+		"card_token_suffix", maskToken(req.CardToken),
 		"status", status,
 		"provider", provider,
 		"duration_ms", duration.Milliseconds(),
@@ -203,6 +207,15 @@ func generateUUID() string {
 	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// maskToken returns the last 4 characters of a token, masking the rest.
+// This prevents sensitive token data from appearing in logs.
+func maskToken(token string) string {
+	if len(token) <= 4 {
+		return "****"
+	}
+	return "****" + token[len(token)-4:]
 }
 
 // clientIP extracts the client IP address from the request.

@@ -10,6 +10,16 @@ source "${SCRIPT_DIR}/lib/colors.sh"
 NAMESPACE="transaction-engine"
 ROLLOUT_NAME="transaction-engine"
 
+# Cleanup trap
+cleanup() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        error "Deploy failed with exit code ${exit_code}"
+        error "Run ./scripts/rollback.sh to rollback"
+    fi
+}
+trap cleanup EXIT
+
 # Validate arguments
 if [ $# -lt 1 ]; then
     error "Usage: $0 <image:tag>"

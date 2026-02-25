@@ -2,6 +2,7 @@
 # ---------------------------------------------------------------------------
 # colors.sh - Color output helpers for terminal scripts
 # ---------------------------------------------------------------------------
+set -euo pipefail
 
 # Respect the NO_COLOR convention (https://no-color.org/)
 if [[ -n "${NO_COLOR:-}" ]]; then

@@ -2,6 +2,7 @@
 # ---------------------------------------------------------------------------
 # checks.sh - Prerequisite checks for the setup script
 # ---------------------------------------------------------------------------
+set -euo pipefail
 
 check_prerequisites() {
     local missing=0

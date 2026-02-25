@@ -14,6 +14,10 @@ export AWS_ACCESS_KEY_ID="test"
 export AWS_SECRET_ACCESS_KEY="test"
 export AWS_DEFAULT_REGION="${AWS_REGION}"
 
+# Check required tools
+command -v aws >/dev/null 2>&1 || { echo "ERROR: aws CLI not found"; exit 1; }
+command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl not found"; exit 1; }
+
 # ---------------------------------------------------------------------------
 # Port-forward LocalStack if not already reachable
 # ---------------------------------------------------------------------------
@@ -24,7 +28,8 @@ if ! curl -s "${LOCALSTACK_URL}/_localstack/health" > /dev/null 2>&1; then
     info "Port-forwarding LocalStack..."
     kubectl port-forward -n secrets svc/localstack 4566:4566 &
     PF_PID=$!
-    trap "kill ${PF_PID} 2>/dev/null || true" EXIT
+    # Use single quotes so PF_PID is expanded at trap execution time, not definition time
+    trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
     # Wait for port-forward to be ready
     for i in $(seq 1 15); do
         if curl -s "${LOCALSTACK_URL}/_localstack/health" > /dev/null 2>&1; then

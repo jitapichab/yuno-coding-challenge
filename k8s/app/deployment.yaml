@@ -16,6 +16,8 @@ spec:
       labels:
         app: transaction-engine
         version: stable
+      annotations:
+        sidecar.istio.io/inject: "true"
     spec:
       serviceAccountName: transaction-engine
       automountServiceAccountToken: false
