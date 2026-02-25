@@ -15,6 +15,7 @@ output "cluster_name" {
 output "cluster_endpoint" {
   description = "The endpoint URL for the EKS cluster API server."
   value       = aws_eks_cluster.main.endpoint
+  sensitive   = true
 }
 
 output "cluster_security_group_id" {

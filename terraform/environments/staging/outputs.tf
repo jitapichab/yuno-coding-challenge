@@ -5,6 +5,7 @@
 output "cluster_endpoint" {
   description = "The endpoint URL for the staging EKS cluster API server."
   value       = module.eks.cluster_endpoint
+  sensitive   = true
 }
 
 output "cluster_name" {
@@ -36,4 +37,5 @@ output "external_secrets_role_arn" {
 output "configure_kubectl" {
   description = "Command to configure kubectl for this cluster."
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
+  sensitive   = true
 }

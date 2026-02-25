@@ -61,12 +61,18 @@ func main() {
 	}))
 	mux.Handle("/v1/authorize", middleware.MetricsMiddleware(m)(authorizeHandler))
 
+	// Wrap the mux with security headers and request timeout middleware.
+	handler := middleware.SecurityHeaders(mux)
+	handler = http.TimeoutHandler(handler, 25*time.Second, `{"error":"request timeout"}`)
+
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           handler,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB max header size
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	// Start server in background.

@@ -1,0 +1,16 @@
+# Reference manifest for Kubernetes etcd encryption at rest
+# Apply to kube-apiserver with --encryption-provider-config flag
+# This is a REFERENCE — Kind/managed K8s handle this differently
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+metadata:
+  name: encryption-config
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: <base64-encoded-32-byte-key>  # Generate with: head -c 32 /dev/urandom | base64
+      - identity: {}  # Fallback for reading unencrypted secrets
