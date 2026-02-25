@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-transaction-engine
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+type: Opaque
+stringData:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+
+    route:
+      receiver: default
+      group_by: ['alertname', 'namespace', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: pagerduty-critical
+          match:
+            severity: critical
+          continue: true
+        - receiver: slack-warning
+          match:
+            severity: warning
+
+    inhibit_rules:
+      - source_match:
+          severity: critical
+        target_match:
+          severity: warning
+        equal: ['alertname', 'namespace']
+
+    receivers:
+      - name: default
+        webhook_configs:
+          - url: 'http://alertmanager-webhook.monitoring.svc:9095/alerts'
+            send_resolved: true
+
+      - name: pagerduty-critical
+        pagerduty_configs:
+          - routing_key_file: /etc/alertmanager/secrets/pagerduty-key
+            severity: critical
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              description: '{{ .CommonAnnotations.description }}'
+              runbook: '{{ .CommonAnnotations.runbook_url }}'
+
+      - name: slack-warning
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/slack-webhook-url
+            channel: '#payment-alerts'
+            title: '{{ .CommonAnnotations.summary }}'
+            text: '{{ .CommonAnnotations.description }}'
+            send_resolved: true

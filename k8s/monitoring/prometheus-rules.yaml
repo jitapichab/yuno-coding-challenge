@@ -1,0 +1,123 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: transaction-engine-rules
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: transaction-engine.recording
+      rules:
+        # Request success rate (5m window)
+        - record: transaction_engine:http_request_success_rate:rate5m
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status=~"2.."}[5m]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[5m]))
+
+        # Latency percentiles
+        - record: transaction_engine:http_request_duration_p50:rate5m
+          expr: |
+            histogram_quantile(0.50,
+              sum(rate(http_request_duration_seconds_bucket{app="transaction-engine"}[5m])) by (le)
+            )
+        - record: transaction_engine:http_request_duration_p95:rate5m
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{app="transaction-engine"}[5m])) by (le)
+            )
+        - record: transaction_engine:http_request_duration_p99:rate5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{app="transaction-engine"}[5m])) by (le)
+            )
+
+        # Active requests
+        - record: transaction_engine:active_requests:sum
+          expr: sum(http_active_requests{app="transaction-engine"})
+
+        # Request rate per version (for old vs new comparison)
+        - record: transaction_engine:http_requests_per_version:rate5m
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine"}[5m])) by (rollout_hash)
+
+        # Error rate per version
+        - record: transaction_engine:http_error_rate_per_version:rate5m
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status=~"5.."}[5m])) by (rollout_hash)
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[5m])) by (rollout_hash)
+
+    - name: transaction-engine.alerts
+      rules:
+        - alert: TransactionEngineHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{app="transaction-engine",status=~"5.."}[2m]))
+              /
+              sum(rate(http_requests_total{app="transaction-engine"}[2m]))
+            ) > 0.01
+          for: 2m
+          labels:
+            severity: critical
+            team: payment-infrastructure
+          annotations:
+            summary: "TransactionEngine error rate > 1%"
+            description: "Error rate is {{ $value | humanizePercentage }} over the last 2 minutes. At 7000 req/min this means ~{{ printf \"%.0f\" (mulf $value 7000) }} failed transactions per minute."
+            runbook_url: "https://wiki.yuno.com/runbooks/transaction-engine-high-error-rate"
+
+        - alert: TransactionEngineHighLatencyP99
+          expr: |
+            transaction_engine:http_request_duration_p99:rate5m > 1.0
+          for: 5m
+          labels:
+            severity: warning
+            team: payment-infrastructure
+          annotations:
+            summary: "TransactionEngine P99 latency > 1s"
+            description: "P99 latency is {{ $value | humanizeDuration }}. SLO target is < 1s."
+
+        - alert: TransactionEngineHighLatencyCritical
+          expr: |
+            transaction_engine:http_request_duration_p99:rate5m > 2.0
+          for: 2m
+          labels:
+            severity: critical
+            team: payment-infrastructure
+          annotations:
+            summary: "TransactionEngine P99 latency > 2s (CRITICAL)"
+            description: "P99 latency is {{ $value | humanizeDuration }}. Customers are experiencing checkout failures."
+
+        - alert: TransactionEnginePodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{namespace="transaction-engine",container="transaction-engine"}[10m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: payment-infrastructure
+          annotations:
+            summary: "TransactionEngine pod is crash-looping"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value | humanize }} times in the last 10 minutes."
+
+        - alert: TransactionEngineDeploymentStalled
+          expr: |
+            kube_deployment_status_condition{namespace="transaction-engine",condition="Progressing",status="false"} == 1
+          for: 10m
+          labels:
+            severity: warning
+            team: payment-infrastructure
+          annotations:
+            summary: "TransactionEngine deployment stalled"
+            description: "Deployment has not progressed for 10 minutes."
+
+        - alert: TransactionEngineNoTraffic
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine"}[5m])) == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: payment-infrastructure
+          annotations:
+            summary: "TransactionEngine receiving no traffic"
+            description: "No requests in the last 5 minutes. Possible routing or service issue."
