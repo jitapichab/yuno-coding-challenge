@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: transaction-engine-role
+  namespace: transaction-engine
+  labels:
+    app.kubernetes.io/name: transaction-engine
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: transaction-engine-binding
+  namespace: transaction-engine
+  labels:
+    app.kubernetes.io/name: transaction-engine
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: transaction-engine-role
+subjects:
+  - kind: ServiceAccount
+    name: transaction-engine
+    namespace: transaction-engine
