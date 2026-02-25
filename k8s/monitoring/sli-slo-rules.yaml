@@ -1,0 +1,567 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: transaction-engine-sli-slo
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: transaction-engine
+    prometheus: kube-prometheus-stack
+spec:
+  groups:
+    # ==================================================================
+    # GROUP 1: SLI Recording Rules
+    # Precomputed SLI ratios at multiple time windows for burn-rate
+    # alerting. Each SLI is expressed as a ratio from 0 to 1 where
+    # 1.0 means 100% of requests met the quality threshold.
+    # ==================================================================
+    - name: transaction-engine.sli
+      interval: 30s
+      rules:
+        # ============================================
+        # SLI 1: Availability
+        # Definition: Proportion of successful HTTP requests (non-5xx)
+        # Target SLO: 99.95% over a 30-day window
+        # Budget: 0.05% error allowance = ~3.5 errors/min at 7000 req/min
+        # ============================================
+
+        # --- 5-minute window (fast burn detection) ---
+        - record: transaction_engine:sli_availability:rate5m
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[5m]))
+
+        # --- 30-minute window (secondary confirmation for 6h alert) ---
+        - record: transaction_engine:sli_availability:rate30m
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status!~"5.."}[30m]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[30m]))
+
+        # --- 1-hour window (primary fast-burn window) ---
+        - record: transaction_engine:sli_availability:rate1h
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status!~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[1h]))
+
+        # --- 6-hour window (medium-burn window) ---
+        - record: transaction_engine:sli_availability:rate6h
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status!~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[6h]))
+
+        # --- 24-hour window (slow-burn window, error budget calc) ---
+        - record: transaction_engine:sli_availability:rate24h
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status!~"5.."}[24h]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[24h]))
+
+        # --- 3-day window (extended error budget tracking) ---
+        - record: transaction_engine:sli_availability:rate3d
+          expr: |
+            sum(rate(http_requests_total{app="transaction-engine",status!~"5.."}[3d]))
+            /
+            sum(rate(http_requests_total{app="transaction-engine"}[3d]))
+
+        # ============================================
+        # SLI 2: Latency
+        # Definition: Proportion of requests completing in < 1000ms
+        # Uses histogram_quantile alternative: ratio of requests in
+        # buckets <= 1s vs total requests. This is more accurate for
+        # SLO burn-rate calculations than percentile-based approaches.
+        # Target SLO: 99.0% over a 30-day window
+        # Budget: 1.0% slow requests = ~70 slow req/min at 7000 req/min
+        # ============================================
+
+        # --- 5-minute window ---
+        - record: transaction_engine:sli_latency:rate5m
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{app="transaction-engine",le="1"}[5m]))
+            /
+            sum(rate(http_request_duration_seconds_count{app="transaction-engine"}[5m]))
+
+        # --- 30-minute window ---
+        - record: transaction_engine:sli_latency:rate30m
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{app="transaction-engine",le="1"}[30m]))
+            /
+            sum(rate(http_request_duration_seconds_count{app="transaction-engine"}[30m]))
+
+        # --- 1-hour window ---
+        - record: transaction_engine:sli_latency:rate1h
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{app="transaction-engine",le="1"}[1h]))
+            /
+            sum(rate(http_request_duration_seconds_count{app="transaction-engine"}[1h]))
+
+        # --- 6-hour window ---
+        - record: transaction_engine:sli_latency:rate6h
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{app="transaction-engine",le="1"}[6h]))
+            /
+            sum(rate(http_request_duration_seconds_count{app="transaction-engine"}[6h]))
+
+        # --- 24-hour window ---
+        - record: transaction_engine:sli_latency:rate24h
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{app="transaction-engine",le="1"}[24h]))
+            /
+            sum(rate(http_request_duration_seconds_count{app="transaction-engine"}[24h]))
+
+        # --- 3-day window ---
+        - record: transaction_engine:sli_latency:rate3d
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{app="transaction-engine",le="1"}[3d]))
+            /
+            sum(rate(http_request_duration_seconds_count{app="transaction-engine"}[3d]))
+
+        # ============================================
+        # SLI 3: Authorization Success Rate (domain-specific)
+        # Definition: Proportion of transaction authorizations that
+        # succeed vs total attempts (excluding user-side declines).
+        # This captures payment-processor and infrastructure failures
+        # distinct from expected business declines.
+        # ============================================
+
+        - record: transaction_engine:sli_authorization_success:rate5m
+          expr: |
+            sum(rate(transaction_authorizations_total{app="transaction-engine",result="success"}[5m]))
+            /
+            sum(rate(transaction_authorizations_total{app="transaction-engine",result!="declined"}[5m]))
+
+        - record: transaction_engine:sli_authorization_success:rate1h
+          expr: |
+            sum(rate(transaction_authorizations_total{app="transaction-engine",result="success"}[1h]))
+            /
+            sum(rate(transaction_authorizations_total{app="transaction-engine",result!="declined"}[1h]))
+
+    # ==================================================================
+    # GROUP 2: SLO Error Budget & Burn Rate Recording Rules
+    # Precompute burn rates as recording rules so alerts query cheap
+    # time series instead of recomputing from raw counters.
+    # ==================================================================
+    - name: transaction-engine.slo
+      rules:
+        # ============================================
+        # Availability Error Budget (30-day window)
+        # SLO: 99.95% -> allowed error budget: 0.05%
+        #
+        # remaining = 1 - (observed_error_rate / allowed_error_rate)
+        # When remaining = 0, the entire 30-day budget is exhausted.
+        # Negative values mean the budget is over-consumed.
+        # ============================================
+
+        - record: transaction_engine:availability_error_budget:remaining
+          expr: |
+            1 - (
+              (1 - transaction_engine:sli_availability:rate24h)
+              /
+              (1 - 0.9995)
+            )
+
+        - record: transaction_engine:availability_error_budget:remaining_3d
+          expr: |
+            1 - (
+              (1 - transaction_engine:sli_availability:rate3d)
+              /
+              (1 - 0.9995)
+            )
+
+        # ============================================
+        # Latency Error Budget (30-day window)
+        # SLO: 99.0% -> allowed error budget: 1.0%
+        # ============================================
+
+        - record: transaction_engine:latency_error_budget:remaining
+          expr: |
+            1 - (
+              (1 - transaction_engine:sli_latency:rate24h)
+              /
+              (1 - 0.99)
+            )
+
+        - record: transaction_engine:latency_error_budget:remaining_3d
+          expr: |
+            1 - (
+              (1 - transaction_engine:sli_latency:rate3d)
+              /
+              (1 - 0.99)
+            )
+
+        # ============================================
+        # Availability Burn Rate at Multiple Windows
+        #
+        # burn_rate = observed_error_rate / allowed_error_rate
+        #           = (1 - SLI) / (1 - SLO_target)
+        #
+        # burn_rate = 1   -> consuming budget exactly as planned
+        # burn_rate = 14.4 -> 30-day budget exhausted in ~2 days
+        # burn_rate = 6    -> 30-day budget exhausted in ~5 days
+        # burn_rate = 3    -> 30-day budget exhausted in ~10 days
+        # burn_rate = 1    -> 30-day budget exhausted in ~30 days
+        # ============================================
+
+        - record: transaction_engine:availability_burn_rate:5m
+          expr: |
+            (1 - transaction_engine:sli_availability:rate5m) / (1 - 0.9995)
+
+        - record: transaction_engine:availability_burn_rate:30m
+          expr: |
+            (1 - transaction_engine:sli_availability:rate30m) / (1 - 0.9995)
+
+        - record: transaction_engine:availability_burn_rate:1h
+          expr: |
+            (1 - transaction_engine:sli_availability:rate1h) / (1 - 0.9995)
+
+        - record: transaction_engine:availability_burn_rate:6h
+          expr: |
+            (1 - transaction_engine:sli_availability:rate6h) / (1 - 0.9995)
+
+        - record: transaction_engine:availability_burn_rate:24h
+          expr: |
+            (1 - transaction_engine:sli_availability:rate24h) / (1 - 0.9995)
+
+        # ============================================
+        # Latency Burn Rate at Multiple Windows
+        #
+        # burn_rate = (1 - SLI_latency) / (1 - SLO_latency_target)
+        #           = fraction_slow_requests / allowed_slow_fraction
+        # ============================================
+
+        - record: transaction_engine:latency_burn_rate:5m
+          expr: |
+            (1 - transaction_engine:sli_latency:rate5m) / (1 - 0.99)
+
+        - record: transaction_engine:latency_burn_rate:30m
+          expr: |
+            (1 - transaction_engine:sli_latency:rate30m) / (1 - 0.99)
+
+        - record: transaction_engine:latency_burn_rate:1h
+          expr: |
+            (1 - transaction_engine:sli_latency:rate1h) / (1 - 0.99)
+
+        - record: transaction_engine:latency_burn_rate:6h
+          expr: |
+            (1 - transaction_engine:sli_latency:rate6h) / (1 - 0.99)
+
+        - record: transaction_engine:latency_burn_rate:24h
+          expr: |
+            (1 - transaction_engine:sli_latency:rate24h) / (1 - 0.99)
+
+    # ==================================================================
+    # GROUP 3: Multi-Window Burn Rate Alerts
+    #
+    # Based on Google SRE Workbook Chapter 5 / Sloth methodology.
+    # Each alert uses two windows: a longer window to detect a sustained
+    # burn and a shorter window to confirm the problem is still active
+    # (not a brief spike that already recovered).
+    #
+    # Tier 1 (Page/Critical): Catches fast burns that exhaust budget in ~2 days
+    #   Long window: 1h at 14.4x burn | Short window: 5m at 14.4x burn
+    #   Detects: 2% budget consumed in 1 hour
+    #
+    # Tier 2 (Ticket/Critical): Catches medium burns exhausting in ~5 days
+    #   Long window: 6h at 6x burn | Short window: 30m at 6x burn
+    #   Detects: 5% budget consumed in 6 hours
+    #
+    # Tier 3 (Warning): Catches slow burns exhausting in ~10 days
+    #   Long window: 24h at 3x burn | Short window: 6h at 3x burn (using 1h as proxy)
+    #   Detects: 10% budget consumed in 1 day
+    # ==================================================================
+    - name: transaction-engine.slo-alerts
+      rules:
+        # ============================================
+        # AVAILABILITY SLO ALERTS (target: 99.95%)
+        # Allowed error rate: 0.05% = 0.0005
+        # At 7000 req/min: ~3.5 errors/min allowed
+        # At 12000 req/min peak: ~6 errors/min allowed
+        # ============================================
+
+        # --- Tier 1: Page-level critical (budget exhausted in ~2 days) ---
+        # 14.4x burn for 1h AND 14.4x burn for 5m (still active)
+        # 14.4x means ~50 errors/min sustained at 7000 req/min
+        - alert: TransactionEngineSLOAvailabilityBurnRateCritical
+          expr: |
+            transaction_engine:availability_burn_rate:1h > 14.4
+            and
+            transaction_engine:availability_burn_rate:5m > 14.4
+          for: 2m
+          labels:
+            severity: critical
+            slo: availability
+            slo_target: "99.95"
+            alert_tier: page
+            team: payment-infrastructure
+          annotations:
+            summary: "Availability SLO critical burn rate -- 30-day error budget will exhaust in ~2 days"
+            description: >-
+              The TransactionEngine availability burn rate is {{ $value | humanize }}x
+              (1h window). At the sustained rate of 7000 req/min with a 99.95% SLO,
+              this means approximately {{ printf "%.0f" (mulf 0.0005 $value 7000) }}
+              failed requests per minute -- far exceeding the allowed ~3.5 errors/min.
+              The 30-day error budget will be fully exhausted in approximately
+              {{ printf "%.1f" (divf 30 $value) }} days at this rate.
+              Immediate investigation required: check for upstream payment processor
+              outages, database connectivity issues, or deployment regressions.
+            impact: "Customers are experiencing transaction failures at a rate that will breach our SLO within 2 days."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-availability-critical"
+            dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
+
+        # --- Tier 2: Ticket-level critical (budget exhausted in ~5 days) ---
+        # 6x burn for 6h AND 6x burn for 30m (still active)
+        # 6x means ~21 errors/min sustained at 7000 req/min
+        - alert: TransactionEngineSLOAvailabilityBurnRateHigh
+          expr: |
+            transaction_engine:availability_burn_rate:6h > 6
+            and
+            transaction_engine:availability_burn_rate:30m > 6
+          for: 5m
+          labels:
+            severity: critical
+            slo: availability
+            slo_target: "99.95"
+            alert_tier: ticket
+            team: payment-infrastructure
+          annotations:
+            summary: "Availability SLO high burn rate -- 30-day error budget will exhaust in ~5 days"
+            description: >-
+              The TransactionEngine availability burn rate is {{ $value | humanize }}x
+              (6h window). This sustained error rate of approximately
+              {{ printf "%.0f" (mulf 0.0005 $value 7000) }} failed requests/min
+              will consume the entire 30-day error budget in
+              {{ printf "%.1f" (divf 30 $value) }} days.
+              This warrants a filed ticket and investigation within the current shift.
+              Check for degraded dependencies, increased timeout rates, or
+              partial infrastructure failures.
+            impact: "Elevated transaction failure rate is steadily consuming error budget. Merchant SLA commitments may be at risk."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-availability-high"
+            dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
+
+        # --- Tier 3: Warning (budget exhausted in ~10 days) ---
+        # 3x burn for 24h AND 3x burn for 1h (still active)
+        # 3x means ~10.5 errors/min sustained at 7000 req/min
+        - alert: TransactionEngineSLOAvailabilityBurnRateWarning
+          expr: |
+            transaction_engine:availability_burn_rate:24h > 3
+            and
+            transaction_engine:availability_burn_rate:1h > 3
+          for: 10m
+          labels:
+            severity: warning
+            slo: availability
+            slo_target: "99.95"
+            alert_tier: warning
+            team: payment-infrastructure
+          annotations:
+            summary: "Availability SLO elevated burn rate -- 30-day error budget will exhaust in ~10 days"
+            description: >-
+              The TransactionEngine availability burn rate is {{ $value | humanize }}x
+              (24h window). While not immediately critical, the error rate of
+              approximately {{ printf "%.0f" (mulf 0.0005 $value 7000) }}
+              failed requests/min is 3x the sustainable rate and will exhaust
+              the monthly error budget in {{ printf "%.1f" (divf 30 $value) }} days.
+              Investigate during normal working hours. Look for subtle issues:
+              intermittent DNS failures, connection pool exhaustion under load,
+              or gradual resource degradation.
+            impact: "Slow but steady error budget consumption. If unaddressed, will lead to SLO breach before month-end."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-availability-warning"
+            dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
+
+        # ============================================
+        # LATENCY SLO ALERTS (target: 99.0%)
+        # Allowed slow-request rate: 1.0% = 0.01
+        # At 7000 req/min: ~70 slow requests/min allowed
+        # At 12000 req/min peak: ~120 slow requests/min allowed
+        # ============================================
+
+        # --- Tier 1: Page-level critical (budget exhausted in ~2 days) ---
+        # 14.4x burn for 1h AND 14.4x burn for 5m
+        # 14.4x means 14.4% of requests are slow (>1s) = ~1008 slow req/min
+        - alert: TransactionEngineSLOLatencyBurnRateCritical
+          expr: |
+            transaction_engine:latency_burn_rate:1h > 14.4
+            and
+            transaction_engine:latency_burn_rate:5m > 14.4
+          for: 2m
+          labels:
+            severity: critical
+            slo: latency
+            slo_target: "99.0"
+            alert_tier: page
+            team: payment-infrastructure
+          annotations:
+            summary: "Latency SLO critical burn rate -- 30-day error budget will exhaust in ~2 days"
+            description: >-
+              The TransactionEngine latency burn rate is {{ $value | humanize }}x
+              (1h window). Currently {{ printf "%.1f" (mulf 0.01 $value 100) }}%
+              of requests exceed the 1-second latency threshold, compared to
+              the allowed 1.0%. At 7000 req/min, approximately
+              {{ printf "%.0f" (mulf 0.01 $value 7000) }} requests/min are
+              experiencing unacceptable latency. The 30-day budget exhausts in
+              {{ printf "%.1f" (divf 30 $value) }} days. Immediate action required:
+              check database query performance, downstream payment processor
+              response times, connection pool saturation, or GC pressure.
+            impact: "Significant portion of payment transactions are timing out or experiencing severe delays, causing checkout abandonment."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-latency-critical"
+            dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
+
+        # --- Tier 2: Ticket-level critical (budget exhausted in ~5 days) ---
+        # 6x burn for 6h AND 6x burn for 30m
+        # 6x means 6% of requests are slow = ~420 slow req/min
+        - alert: TransactionEngineSLOLatencyBurnRateHigh
+          expr: |
+            transaction_engine:latency_burn_rate:6h > 6
+            and
+            transaction_engine:latency_burn_rate:30m > 6
+          for: 5m
+          labels:
+            severity: critical
+            slo: latency
+            slo_target: "99.0"
+            alert_tier: ticket
+            team: payment-infrastructure
+          annotations:
+            summary: "Latency SLO high burn rate -- 30-day error budget will exhaust in ~5 days"
+            description: >-
+              The TransactionEngine latency burn rate is {{ $value | humanize }}x
+              (6h window). Approximately {{ printf "%.1f" (mulf 0.01 $value 100) }}%
+              of requests are exceeding the 1-second threshold over the past 6 hours,
+              translating to ~{{ printf "%.0f" (mulf 0.01 $value 7000) }} slow
+              requests/min. The monthly latency budget will be consumed in
+              {{ printf "%.1f" (divf 30 $value) }} days. File a ticket and
+              investigate within the current shift. Look for: query plan regressions,
+              increased payload sizes, upstream service degradation, or resource
+              contention from co-located workloads.
+            impact: "Sustained latency degradation is eroding the monthly error budget. Merchant-facing SLAs on response time may be breached."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-latency-high"
+            dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
+
+        # --- Tier 3: Warning (budget exhausted in ~10 days) ---
+        # 3x burn for 24h AND 3x burn for 1h
+        # 3x means 3% of requests are slow = ~210 slow req/min
+        - alert: TransactionEngineSLOLatencyBurnRateWarning
+          expr: |
+            transaction_engine:latency_burn_rate:24h > 3
+            and
+            transaction_engine:latency_burn_rate:1h > 3
+          for: 10m
+          labels:
+            severity: warning
+            slo: latency
+            slo_target: "99.0"
+            alert_tier: warning
+            team: payment-infrastructure
+          annotations:
+            summary: "Latency SLO elevated burn rate -- 30-day error budget will exhaust in ~10 days"
+            description: >-
+              The TransactionEngine latency burn rate is {{ $value | humanize }}x
+              (24h window). Over the past 24 hours,
+              {{ printf "%.1f" (mulf 0.01 $value 100) }}% of requests have
+              exceeded the 1-second latency threshold -- 3x the sustainable rate
+              of 1.0%. At 7000 req/min this is ~{{ printf "%.0f" (mulf 0.01 $value 7000) }}
+              slow requests per minute. The monthly budget will be consumed in
+              {{ printf "%.1f" (divf 30 $value) }} days. Investigate during
+              normal working hours. Consider: index degradation, cache hit rate
+              drops, growing dataset sizes, or configuration drift.
+            impact: "Gradual latency increase is consuming error budget faster than sustainable. Investigate before it becomes critical."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-latency-warning"
+            dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
+
+        # ============================================
+        # ERROR BUDGET EXHAUSTION ALERTS
+        # These fire when the overall budget is nearly or fully consumed,
+        # regardless of current burn rate. They act as a safety net for
+        # slow-drip issues that no burn-rate tier catches individually.
+        # ============================================
+
+        - alert: TransactionEngineAvailabilityErrorBudgetNearlyExhausted
+          expr: |
+            transaction_engine:availability_error_budget:remaining < 0.10
+            and
+            transaction_engine:availability_error_budget:remaining >= 0
+          for: 5m
+          labels:
+            severity: warning
+            slo: availability
+            alert_tier: budget
+            team: payment-infrastructure
+          annotations:
+            summary: "Availability error budget less than 10% remaining"
+            description: >-
+              Only {{ $value | humanizePercentage }} of the availability error
+              budget remains. The 99.95% SLO allows a total of ~2160 errors
+              over 30 days at 7000 req/min (approximately 21.6 minutes of
+              complete downtime equivalent). Current remaining budget:
+              {{ printf "%.1f" (mulf $value 21.6) }} minutes of downtime equivalent.
+              Consider implementing a change freeze until the budget recovers.
+            impact: "Minimal error budget remaining. Any further incidents will breach the monthly SLO."
+            runbook_url: "https://wiki.yuno.com/runbooks/error-budget-exhaustion"
+
+        - alert: TransactionEngineAvailabilityErrorBudgetExhausted
+          expr: |
+            transaction_engine:availability_error_budget:remaining < 0
+          for: 5m
+          labels:
+            severity: critical
+            slo: availability
+            alert_tier: budget
+            team: payment-infrastructure
+          annotations:
+            summary: "Availability error budget EXHAUSTED -- SLO breached"
+            description: >-
+              The availability error budget is fully consumed
+              ({{ $value | humanizePercentage }} remaining, meaning the budget
+              is {{ printf "%.1f" (mulf (subf 0 $value) 100) }}% over-consumed).
+              The 99.95% availability SLO has been breached for the current
+              30-day window. Engage leadership for incident review. Implement
+              an immediate change freeze. All non-essential deployments must
+              be halted until budget recovers.
+            impact: "SLO BREACH: Monthly availability target missed. Merchant SLA penalties may apply."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-breach"
+
+        - alert: TransactionEngineLatencyErrorBudgetNearlyExhausted
+          expr: |
+            transaction_engine:latency_error_budget:remaining < 0.10
+            and
+            transaction_engine:latency_error_budget:remaining >= 0
+          for: 5m
+          labels:
+            severity: warning
+            slo: latency
+            alert_tier: budget
+            team: payment-infrastructure
+          annotations:
+            summary: "Latency error budget less than 10% remaining"
+            description: >-
+              Only {{ $value | humanizePercentage }} of the latency error
+              budget remains. The 99.0% SLO allows ~1% of requests to exceed
+              1 second, which at 7000 req/min is ~70 slow requests/min
+              sustained over 30 days. The budget is nearly exhausted.
+              Review recent latency-impacting changes and consider rollbacks.
+            impact: "Latency error budget nearly consumed. Further degradation will breach the SLO."
+            runbook_url: "https://wiki.yuno.com/runbooks/error-budget-exhaustion"
+
+        - alert: TransactionEngineLatencyErrorBudgetExhausted
+          expr: |
+            transaction_engine:latency_error_budget:remaining < 0
+          for: 5m
+          labels:
+            severity: critical
+            slo: latency
+            alert_tier: budget
+            team: payment-infrastructure
+          annotations:
+            summary: "Latency error budget EXHAUSTED -- SLO breached"
+            description: >-
+              The latency error budget is fully consumed
+              ({{ $value | humanizePercentage }} remaining). The 99.0%
+              latency SLO (requests < 1s) has been breached for the current
+              30-day window. More than 1% of all requests over the measurement
+              period exceeded the 1-second threshold. Engage leadership for
+              incident review and halt non-essential changes.
+            impact: "SLO BREACH: Monthly latency target missed. Performance SLA commitments to merchants are violated."
+            runbook_url: "https://wiki.yuno.com/runbooks/slo-breach"
