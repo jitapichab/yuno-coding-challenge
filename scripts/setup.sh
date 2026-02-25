@@ -107,19 +107,18 @@ fi
 # ===================================================================
 header "Step 5: Add Helm repositories"
 
-declare -A HELM_REPOS=(
-    ["prometheus-community"]="https://prometheus-community.github.io/helm-charts"
-    ["external-secrets"]="https://charts.external-secrets.io"
-)
-
-for repo in "${!HELM_REPOS[@]}"; do
-    if helm repo list 2>/dev/null | grep -q "^${repo}"; then
-        warn "Helm repo '${repo}' already added -- skipping"
+add_helm_repo() {
+    local name="$1" url="$2"
+    if helm repo list 2>/dev/null | grep -q "^${name}"; then
+        warn "Helm repo '${name}' already added -- skipping"
     else
-        helm repo add "${repo}" "${HELM_REPOS[$repo]}"
-        success "Helm repo '${repo}' added"
+        helm repo add "${name}" "${url}"
+        success "Helm repo '${name}' added"
     fi
-done
+}
+
+add_helm_repo "prometheus-community" "https://prometheus-community.github.io/helm-charts"
+add_helm_repo "external-secrets" "https://charts.external-secrets.io"
 
 info "Updating Helm repos ..."
 helm repo update
