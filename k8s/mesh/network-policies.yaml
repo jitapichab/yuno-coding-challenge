@@ -1,0 +1,114 @@
+# 1. Default deny all ingress and egress in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: transaction-engine
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2. Allow ingress from Istio ingressgateway and within mesh
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istio-ingress
+  namespace: transaction-engine
+spec:
+  podSelector:
+    matchLabels:
+      app: transaction-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+        - podSelector: {}  # within namespace (for Istio sidecar)
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 15090  # Istio envoy stats
+          protocol: TCP
+---
+# 3. Allow egress to kube-dns
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: transaction-engine
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# 4. Allow egress to Istio control plane (for sidecar communication)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istio-egress
+  namespace: transaction-engine
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - port: 15012  # Istio xDS
+          protocol: TCP
+        - port: 15014  # Istio telemetry
+          protocol: TCP
+---
+# 5. Allow egress to monitoring (Prometheus scrapes via ingress, but pods may need to push)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-egress
+  namespace: transaction-engine
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+---
+# 6. Allow Prometheus to scrape metrics (ingress from monitoring namespace)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: transaction-engine
+spec:
+  podSelector:
+    matchLabels:
+      app: transaction-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8080
+          protocol: TCP

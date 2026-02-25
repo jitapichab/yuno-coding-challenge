@@ -1,0 +1,27 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: transaction-engine
+  namespace: transaction-engine
+spec:
+  host: transaction-engine
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+      http:
+        h2UpgradePolicy: DEFAULT
+        maxRequestsPerConnection: 100
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: stable
+      labels:
+        app: transaction-engine
+    - name: canary
+      labels:
+        app: transaction-engine

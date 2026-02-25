@@ -1,0 +1,32 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: transaction-engine
+  namespace: transaction-engine
+spec:
+  hosts:
+    - transaction-engine
+    - transaction-engine.local
+  gateways:
+    - transaction-engine-gateway
+    - mesh
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: transaction-engine-stable
+            port:
+              number: 80
+            subset: stable
+          weight: 100
+        - destination:
+            host: transaction-engine-canary
+            port:
+              number: 80
+            subset: canary
+          weight: 0
+      timeout: 5s
+      retries:
+        attempts: 2
+        perTryTimeout: 3s
+        retryOn: 5xx,reset,connect-failure,retriable-4xx
