@@ -1,0 +1,44 @@
+# Exercise file (do not commit)
+exercise.md
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+
+# Go
+mock-service/transaction-engine
+mock-service/bin/
+__debug_bin*
+*.test
+
+# LocalStack
+localstack-data/
+.localstack/
+
+# Environment
+*.env
+.env.*
+!*.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prompt files
+PROMPT.md
+CLAUDE.md.template
