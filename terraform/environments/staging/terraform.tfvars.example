@@ -1,0 +1,11 @@
+# -----------------------------------------------------------------------------
+# Staging Environment - Variable Overrides
+# -----------------------------------------------------------------------------
+# Copy this file to terraform.tfvars and customize for your deployment:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# IMPORTANT: terraform.tfvars is gitignored and should never be committed.
+# -----------------------------------------------------------------------------
+
+aws_region = "us-east-1"
+vpc_cidr   = "10.0.0.0/16"
