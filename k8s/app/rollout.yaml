@@ -1,0 +1,134 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: transaction-engine
+  namespace: transaction-engine
+  labels:
+    app: transaction-engine
+    version: stable
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: transaction-engine
+  strategy:
+    canary:
+      canaryService: transaction-engine-canary
+      stableService: transaction-engine-stable
+      trafficRouting:
+        istio:
+          virtualServices:
+            - name: transaction-engine
+              routes:
+                - primary
+          destinationRule:
+            name: transaction-engine
+            canarySubsetName: canary
+            stableSubsetName: stable
+      analysis:
+        templates:
+          - templateName: transaction-engine-analysis
+        startingStep: 1
+        args:
+          - name: service-name
+            value: transaction-engine
+      steps:
+        - setWeight: 5
+        - pause: {duration: 60s}
+        - setWeight: 25
+        - pause: {duration: 60s}
+        - setWeight: 50
+        - pause: {duration: 60s}
+        - setWeight: 100
+      maxSurge: 1
+      maxUnavailable: 0
+      abortScaleDownDelaySeconds: 30
+      dynamicStableScale: true
+  template:
+    metadata:
+      labels:
+        app: transaction-engine
+        version: stable
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: transaction-engine
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: transaction-engine
+      containers:
+        - name: transaction-engine
+          image: jitapichab/transaction-engine:latest
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          env:
+            - name: DB_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: transaction-engine-secrets
+                  key: DB_CONNECTION_STRING
+            - name: PROVIDER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: transaction-engine-secrets
+                  key: PROVIDER_API_KEY
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: transaction-engine-secrets
+                  key: ENCRYPTION_KEY
+            - name: SERVICE_ENV
+              value: "production"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            failureThreshold: 10
+            periodSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]

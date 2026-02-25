@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: transaction-engine-analysis
+  namespace: transaction-engine
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 4
+      failureLimit: 1
+      successCondition: "result[0] >= 0.99"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{app="{{args.service-name}}",status=~"2.."}[2m]))
+            /
+            sum(rate(http_requests_total{app="{{args.service-name}}"}[2m]))
+    - name: latency-p99
+      interval: 30s
+      count: 4
+      failureLimit: 1
+      successCondition: "result[0] <= 1.0"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{app="{{args.service-name}}"}[2m])) by (le)
+            )
+    - name: error-rate
+      interval: 30s
+      count: 4
+      failureLimit: 1
+      failureCondition: "result[0] >= 0.01"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{app="{{args.service-name}}",status=~"5.."}[2m]))
+            /
+            sum(rate(http_requests_total{app="{{args.service-name}}"}[2m]))

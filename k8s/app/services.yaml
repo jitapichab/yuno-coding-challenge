@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-engine-stable
+  namespace: transaction-engine
+  labels:
+    app: transaction-engine
+    role: stable
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+      protocol: TCP
+  selector:
+    app: transaction-engine
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-engine-canary
+  namespace: transaction-engine
+  labels:
+    app: transaction-engine
+    role: canary
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+      protocol: TCP
+  selector:
+    app: transaction-engine
