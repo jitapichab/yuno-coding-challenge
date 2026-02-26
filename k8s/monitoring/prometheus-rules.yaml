@@ -64,7 +64,7 @@ spec:
             team: payment-infrastructure
           annotations:
             summary: "TransactionEngine error rate > 1%"
-            description: "Error rate is {{ $value | humanizePercentage }} over the last 2 minutes. At 7000 req/min this means ~{{ printf \"%.0f\" (mulf $value 7000) }} failed transactions per minute."
+            description: "Error rate is {{ $value | humanizePercentage }} over the last 2 minutes. At 7000 req/min this could mean thousands of failed transactions per minute."
             runbook_url: "https://wiki.yuno.com/runbooks/transaction-engine-high-error-rate"
 
         - alert: TransactionEngineHighLatencyP99

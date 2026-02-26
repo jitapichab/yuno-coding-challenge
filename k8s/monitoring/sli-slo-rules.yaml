@@ -300,11 +300,11 @@ spec:
             summary: "Availability SLO critical burn rate -- 30-day error budget will exhaust in ~2 days"
             description: >-
               The TransactionEngine availability burn rate is {{ $value | humanize }}x
-              (1h window). At the sustained rate of 7000 req/min with a 99.95% SLO,
-              this means approximately {{ printf "%.0f" (mulf 0.0005 $value 7000) }}
-              failed requests per minute -- far exceeding the allowed ~3.5 errors/min.
+              (1h window). At the sustained rate of 7000 req/min with a 99.95% SLO
+              (allowed ~3.5 errors/min), a 14.4x burn rate means ~50 failed requests
+              per minute -- far exceeding the budget.
               The 30-day error budget will be fully exhausted in approximately
-              {{ printf "%.1f" (divf 30 $value) }} days at this rate.
+              2 days at a 14.4x burn rate.
               Immediate investigation required: check for upstream payment processor
               outages, database connectivity issues, or deployment regressions.
             impact: "Customers are experiencing transaction failures at a rate that will breach our SLO within 2 days."
@@ -330,10 +330,10 @@ spec:
             summary: "Availability SLO high burn rate -- 30-day error budget will exhaust in ~5 days"
             description: >-
               The TransactionEngine availability burn rate is {{ $value | humanize }}x
-              (6h window). This sustained error rate of approximately
-              {{ printf "%.0f" (mulf 0.0005 $value 7000) }} failed requests/min
-              will consume the entire 30-day error budget in
-              {{ printf "%.1f" (divf 30 $value) }} days.
+              (6h window). At a 6x burn rate this means ~21 failed requests/min
+              (vs the allowed ~3.5 errors/min at 7000 req/min).
+              The 30-day error budget will be consumed in approximately 5 days
+              at a 6x burn rate.
               This warrants a filed ticket and investigation within the current shift.
               Check for degraded dependencies, increased timeout rates, or
               partial infrastructure failures.
@@ -360,10 +360,10 @@ spec:
             summary: "Availability SLO elevated burn rate -- 30-day error budget will exhaust in ~10 days"
             description: >-
               The TransactionEngine availability burn rate is {{ $value | humanize }}x
-              (24h window). While not immediately critical, the error rate of
-              approximately {{ printf "%.0f" (mulf 0.0005 $value 7000) }}
-              failed requests/min is 3x the sustainable rate and will exhaust
-              the monthly error budget in {{ printf "%.1f" (divf 30 $value) }} days.
+              (24h window). While not immediately critical, at a 3x burn rate
+              this means ~10.5 failed requests/min (vs the allowed ~3.5 errors/min
+              at 7000 req/min) and will exhaust the monthly error budget in
+              approximately 10 days.
               Investigate during normal working hours. Look for subtle issues:
               intermittent DNS failures, connection pool exhaustion under load,
               or gradual resource degradation.
@@ -397,14 +397,13 @@ spec:
             summary: "Latency SLO critical burn rate -- 30-day error budget will exhaust in ~2 days"
             description: >-
               The TransactionEngine latency burn rate is {{ $value | humanize }}x
-              (1h window). Currently {{ printf "%.1f" (mulf 0.01 $value 100) }}%
-              of requests exceed the 1-second latency threshold, compared to
-              the allowed 1.0%. At 7000 req/min, approximately
-              {{ printf "%.0f" (mulf 0.01 $value 7000) }} requests/min are
-              experiencing unacceptable latency. The 30-day budget exhausts in
-              {{ printf "%.1f" (divf 30 $value) }} days. Immediate action required:
-              check database query performance, downstream payment processor
-              response times, connection pool saturation, or GC pressure.
+              (1h window). At a 14.4x burn rate, approximately 14.4% of requests
+              exceed the 1-second latency threshold (vs the allowed 1.0%).
+              At 7000 req/min, this means ~1008 slow requests/min.
+              The 30-day budget exhausts in approximately 2 days at this rate.
+              Immediate action required: check database query performance,
+              downstream payment processor response times, connection pool
+              saturation, or GC pressure.
             impact: "Significant portion of payment transactions are timing out or experiencing severe delays, causing checkout abandonment."
             runbook_url: "https://wiki.yuno.com/runbooks/slo-latency-critical"
             dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
@@ -428,14 +427,13 @@ spec:
             summary: "Latency SLO high burn rate -- 30-day error budget will exhaust in ~5 days"
             description: >-
               The TransactionEngine latency burn rate is {{ $value | humanize }}x
-              (6h window). Approximately {{ printf "%.1f" (mulf 0.01 $value 100) }}%
-              of requests are exceeding the 1-second threshold over the past 6 hours,
-              translating to ~{{ printf "%.0f" (mulf 0.01 $value 7000) }} slow
-              requests/min. The monthly latency budget will be consumed in
-              {{ printf "%.1f" (divf 30 $value) }} days. File a ticket and
-              investigate within the current shift. Look for: query plan regressions,
-              increased payload sizes, upstream service degradation, or resource
-              contention from co-located workloads.
+              (6h window). At a 6x burn rate, approximately 6% of requests are
+              exceeding the 1-second threshold over the past 6 hours, translating
+              to ~420 slow requests/min at 7000 req/min. The monthly latency
+              budget will be consumed in approximately 5 days at this rate.
+              File a ticket and investigate within the current shift. Look for:
+              query plan regressions, increased payload sizes, upstream service
+              degradation, or resource contention from co-located workloads.
             impact: "Sustained latency degradation is eroding the monthly error budget. Merchant-facing SLAs on response time may be breached."
             runbook_url: "https://wiki.yuno.com/runbooks/slo-latency-high"
             dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
@@ -459,14 +457,13 @@ spec:
             summary: "Latency SLO elevated burn rate -- 30-day error budget will exhaust in ~10 days"
             description: >-
               The TransactionEngine latency burn rate is {{ $value | humanize }}x
-              (24h window). Over the past 24 hours,
-              {{ printf "%.1f" (mulf 0.01 $value 100) }}% of requests have
-              exceeded the 1-second latency threshold -- 3x the sustainable rate
-              of 1.0%. At 7000 req/min this is ~{{ printf "%.0f" (mulf 0.01 $value 7000) }}
-              slow requests per minute. The monthly budget will be consumed in
-              {{ printf "%.1f" (divf 30 $value) }} days. Investigate during
-              normal working hours. Consider: index degradation, cache hit rate
-              drops, growing dataset sizes, or configuration drift.
+              (24h window). Over the past 24 hours, at a 3x burn rate approximately
+              3% of requests have exceeded the 1-second latency threshold -- 3x the
+              sustainable rate of 1.0%. At 7000 req/min this is ~210 slow requests
+              per minute. The monthly budget will be consumed in approximately
+              10 days at this rate. Investigate during normal working hours.
+              Consider: index degradation, cache hit rate drops, growing dataset
+              sizes, or configuration drift.
             impact: "Gradual latency increase is consuming error budget faster than sustainable. Investigate before it becomes critical."
             runbook_url: "https://wiki.yuno.com/runbooks/slo-latency-warning"
             dashboard_url: "https://grafana.yuno.com/d/transaction-engine-slo/slo-overview"
@@ -495,8 +492,8 @@ spec:
               Only {{ $value | humanizePercentage }} of the availability error
               budget remains. The 99.95% SLO allows a total of ~2160 errors
               over 30 days at 7000 req/min (approximately 21.6 minutes of
-              complete downtime equivalent). Current remaining budget:
-              {{ printf "%.1f" (mulf $value 21.6) }} minutes of downtime equivalent.
+              complete downtime equivalent). With less than 10% budget remaining,
+              fewer than ~2.2 minutes of downtime equivalent remain.
               Consider implementing a change freeze until the budget recovers.
             impact: "Minimal error budget remaining. Any further incidents will breach the monthly SLO."
             runbook_url: "https://wiki.yuno.com/runbooks/error-budget-exhaustion"
@@ -515,7 +512,7 @@ spec:
             description: >-
               The availability error budget is fully consumed
               ({{ $value | humanizePercentage }} remaining, meaning the budget
-              is {{ printf "%.1f" (mulf (subf 0 $value) 100) }}% over-consumed).
+              is over-consumed).
               The 99.95% availability SLO has been breached for the current
               30-day window. Engage leadership for incident review. Implement
               an immediate change freeze. All non-essential deployments must

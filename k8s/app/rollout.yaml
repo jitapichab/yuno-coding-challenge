@@ -71,6 +71,7 @@ spec:
       containers:
         - name: transaction-engine
           image: jitapichab/transaction-engine:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 8080
               name: http
